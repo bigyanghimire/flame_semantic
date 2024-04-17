@@ -24,14 +24,32 @@ import random
 from torchsummary import summary
 import segmentation_models_pytorch as smp
 from torchmetrics import JaccardIndex
+
+
+lrs = []
+epochs=1
+
+test_iou = [];
+
+train_iou_array = [];
+train_loss_arrray = [];
+
+test_iou_array = [];
+test_loss_arrray = [];
+
+val_iou_array = [];
+val_loss_array = [];
+
+batch_size=3
+
 random_seed = 89
 random.seed(random_seed)
 np.random.seed(random_seed)
 torch.manual_seed(random_seed)
 
+mean=[0.485, 0.456, 0.406]
+std=[0.229, 0.224, 0.225]
 
-
-batch_size=3
 class CustomDataset(Dataset):
     def __init__(self, image_dir, mask_dir, transform=None):
         self.image_dir = image_dir
@@ -61,19 +79,19 @@ class CustomDataset(Dataset):
         mask = torch.from_numpy(mask).long()
         return img, mask
         
-    
-mean=[0.485, 0.456, 0.406]
-std=[0.229, 0.224, 0.225]
+
 
 transform = transforms.Compose([transforms.ToTensor(), 
                                 transforms.Resize((256, 256)),
                                 transforms.Normalize(mean, std)])
 u_transform=A.Compose([A.Resize(256, 256)])
+
 full_dataset = CustomDataset('dataset/Images', 'dataset/Masks',u_transform)
 
 t_train =A.Compose([A.Resize(256, 256, interpolation=cv2.INTER_NEAREST), A.HorizontalFlip(), A.VerticalFlip(), 
                      A.GridDistortion(p=0.2), A.RandomBrightnessContrast((0,0.5),(0,0.5)),
                      A.GaussNoise()])
+
 t_val = A.Compose([A.Resize(256, 256, interpolation=cv2.INTER_NEAREST), A.HorizontalFlip(),
                    A.GridDistortion(p=0.2)])
 t_test = A.Resize(256, 256, interpolation=cv2.INTER_NEAREST)
@@ -98,28 +116,16 @@ print("len of val dataset",len(val_loader.dataset))
 
 model = smp.Unet('mobilenet_v2', encoder_weights='imagenet', classes=2, activation=None, encoder_depth=5, decoder_channels=[256, 128, 64, 32, 16])
 
-criterion = nn.CrossEntropyLoss()
+loss_function = nn.CrossEntropyLoss()
+
 max_lr = 1e-3
 weight_decay = 1e-4
 optimizer = torch.optim.AdamW(model.parameters(), lr=max_lr, weight_decay=weight_decay)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print("device is",device)
-lrs = []
-epochs=1
 sched = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr, epochs=epochs,
                                             steps_per_epoch=len(train_loader))
 
-test_iou = [];
-
-train_iou_array = [];
-train_loss_arrray = [];
-
-test_iou_array = [];
-test_loss_arrray = [];
-
-val_iou_array = [];
-val_loss_array = [];
-#running_loss=0
+print("device is",device)
 
 def get_lr(optimizer):
     for param_group in optimizer.param_groups:
@@ -134,10 +140,7 @@ def train_model(train_dataloader, val_dataloader, model, loss_fn, optimizer,sche
         images, masks = images.to(device), masks.to(device)
         masks=masks.squeeze(1).long()
         output = model(images)
-        loss = criterion(output, masks)
-        #iou_score = mIoU(output, masks)
-
-        #print("iou score compute_iou",iou_score)
+        loss = loss_function(output, masks)
 
         loss.backward()
         optimizer.step() #update weight          
@@ -145,7 +148,6 @@ def train_model(train_dataloader, val_dataloader, model, loss_fn, optimizer,sche
 
         lrs.append(get_lr(optimizer))
         scheduler.step() 
-        
         
         train_loss += loss.item()
         train_iou+= Iou_score(output,masks).item()
@@ -164,7 +166,7 @@ def train_model(train_dataloader, val_dataloader, model, loss_fn, optimizer,sche
             masks = masks.squeeze(1).long()
 
             output = model(images)
-            loss = criterion(output, masks)
+            loss = loss_function(output, masks)
 
             val_loss += loss.item()
             val_iou += Iou_score(output, masks).item()
@@ -175,12 +177,6 @@ def train_model(train_dataloader, val_dataloader, model, loss_fn, optimizer,sche
     val_iou_array.append(val_iou)
     
     return train_loss, train_iou, val_loss, val_iou
-
-        # if batch % 500 == 0:
-        #     # train_loss = loss.item()
-        #     # test_loss  = test_accuracy(test_loader,model,loss_fn)
-        #     # print("test loss is",test_loss)
-        #     # print(f"Train_loss: {train_loss:>7f}  Test_loss:{test_loss:>7f} Test_acc:{testing_accuracy}%")
 
 # def test_accuracy(dataloader, model, loss_fn):
 #     test_loss = 0.0
@@ -221,7 +217,7 @@ def test2():
             images, masks = images.to(device), masks.to(device)
             masks = masks.squeeze(1).long()
             outputs = model(images)
-            loss = criterion(outputs, masks)
+            loss = loss_function(outputs, masks)
             test_loss += loss.item()
             pred_masks = torch.argmax(outputs, dim=1)
             iou_metric(pred_masks, masks)
@@ -310,13 +306,13 @@ def plot_score(history):
 def train():
     for epoch in range(epochs):
         print(f"Epoch {epoch+1}\n-------------------------------")
-        train_loss, train_iou, val_loss, val_iou = train_model(train_loader, val_loader, model, criterion, optimizer, sched)
+        train_loss, train_iou, val_loss, val_iou = train_model(train_loader, val_loader, model, loss_function, optimizer, sched)
         print(f"Epoch {epoch+1}/{epochs}:")
         print(f"Train Loss: {train_loss:.4f}, Train IoU: {train_iou:.4f}")
         print(f"Val Loss: {val_loss:.4f}, Val IoU: {val_iou:.4f}")
 
-        # #train_model(train_loader, model, criterion, optimizer,sched)
-        # #test_accuracy_score=test_accuracy(test_loader,model,criterion)
+        # #train_model(train_loader, model, loss_function, optimizer,sched)
+        # #test_accuracy_score=test_accuracy(test_loader,model,loss_function)
         # iou2,fps= test_accuracy_2(test_loader,model)
         # #print("test accuracy",test_accuracy_score)
         # print("test accuracy2",iou2)
