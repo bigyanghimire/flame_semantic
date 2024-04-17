@@ -97,6 +97,7 @@ print("len of val dataset",len(val_loader.dataset))
 
 
 model = smp.Unet('mobilenet_v2', encoder_weights='imagenet', classes=2, activation=None, encoder_depth=5, decoder_channels=[256, 128, 64, 32, 16])
+
 criterion = nn.CrossEntropyLoss()
 max_lr = 1e-3
 weight_decay = 1e-4
@@ -104,105 +105,170 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=max_lr, weight_decay=weight
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print("device is",device)
 lrs = []
-sched = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr, epochs=1,
+epochs=1
+sched = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr, epochs=epochs,
                                             steps_per_epoch=len(train_loader))
+
+test_iou = [];
+
+train_iou_array = [];
+train_loss_arrray = [];
+
+test_iou_array = [];
+test_loss_arrray = [];
+
+val_iou_array = [];
+val_loss_array = [];
+#running_loss=0
+
 def get_lr(optimizer):
     for param_group in optimizer.param_groups:
         return param_group['lr']
     
-def train_model(dataloader, model, loss_fn, optimizer,scheduler):
+def train_model(train_dataloader, val_dataloader, model, loss_fn, optimizer,scheduler):
     model.to(device)
     model.train()
-    iou_score=0
-    #print("daatloader",len(train_loader.dataset))
-    
-    for batch, (images, masks) in enumerate(tqdm(dataloader)):
+    train_loss = 0.0
+    train_iou = 0.0
+    for batch, (images, masks) in enumerate(tqdm(train_dataloader)):
         images, masks = images.to(device), masks.to(device)
         masks=masks.squeeze(1).long()
         output = model(images)
         loss = criterion(output, masks)
-        iou_score = mIoU(output, masks)
-        #iou2= test_accuracy_2(output,masks)
+        #iou_score = mIoU(output, masks)
 
-        #print("iou score",iou_score)
-        #print("iou score compute_iou",iou2)
+        #print("iou score compute_iou",iou_score)
 
         loss.backward()
         optimizer.step() #update weight          
         optimizer.zero_grad() #reset gradient
+
         lrs.append(get_lr(optimizer))
         scheduler.step() 
+        
+        
+        train_loss += loss.item()
+        train_iou+= Iou_score(output,masks).item()
+
+    train_loss /= len(train_loader)
+    train_iou /= len(train_loader)
+    train_loss_arrray.append(train_loss)
+    train_iou_array.append(train_iou)
+
+    model.eval()
+    val_loss = 0.0
+    val_iou = 0.0
+    with torch.no_grad():
+        for images, masks in val_dataloader:
+            images, masks = images.to(device), masks.to(device)
+            masks = masks.squeeze(1).long()
+
+            output = model(images)
+            loss = criterion(output, masks)
+
+            val_loss += loss.item()
+            val_iou += Iou_score(output, masks).item()
+
+    val_loss /= len(val_loader)
+    val_iou /= len(val_loader)
+    val_loss_array.append(val_loss)
+    val_iou_array.append(val_iou)
+    
+    return train_loss, train_iou, val_loss, val_iou
 
         # if batch % 500 == 0:
         #     # train_loss = loss.item()
         #     # test_loss  = test_accuracy(test_loader,model,loss_fn)
         #     # print("test loss is",test_loss)
         #     # print(f"Train_loss: {train_loss:>7f}  Test_loss:{test_loss:>7f} Test_acc:{testing_accuracy}%")
-test_iou = [];
-def test_accuracy(dataloader, model, loss_fn):
-    test_loss = 0.0
-    iou_score = 0
 
-    with torch.no_grad():
-        for batch, (images, masks) in enumerate(dataloader):
-            images, masks = images.to(device), masks.to(device)
-            masks=masks.squeeze(1).long()
-            outputs = model(images)
-            iou_score += mIoU(outputs, masks)
-            test_iou.append(iou_score/len(dataloader))
+# def test_accuracy(dataloader, model, loss_fn):
+#     test_loss = 0.0
+#     iou_score = 0
 
-            loss = loss_fn(outputs, masks)
-            test_loss += loss.item()
+#     with torch.no_grad():
+#         for batch, (images, masks) in enumerate(dataloader):
+#             images, masks = images.to(device), masks.to(device)
+#             masks=masks.squeeze(1).long()
+#             outputs = model(images)
+#             iou_score += mIoU(outputs, masks)
+#             test_iou.append(iou_score/len(dataloader))
 
-        #test_iou.append(iou_score/len(dataloader))
+#             loss = loss_fn(outputs, masks)
+#             test_loss += loss.item()
 
-        #test_loss /= len(dataloader.dataset)
-        return iou_score/len(dataloader)
-    
-def test_accuracy_2(dataloader, model):
+#         #test_iou.append(iou_score/len(dataloader))
+
+#         test_loss /= len(dataloader.dataset)
+#         test_loss_arrray.append(test_loss)
+#         return iou_score/len(dataloader)
+
+def Iou_score(outputs,masks):
     iou_metric = JaccardIndex(task='multiclass', num_classes=2).to(device)
-    total_batches = len(dataloader)
+    pred_masks = torch.argmax(outputs, dim=1)
+    iou_metric(pred_masks, masks)
+    return iou_metric.compute()
+
+def test2():
+    model = torch.load('model/model_final2.pth',map_location=torch.device(device))
+    model.eval()
+    iou_metric = JaccardIndex(task='multiclass', num_classes=2).to(device)
     total_time = 0
-    
+    test_loss=0
     with torch.no_grad():
-        for images, masks in dataloader:
+        for images, masks in test_loader:
             start_time = time.time()  # Start time for measuring fps
             images, masks = images.to(device), masks.to(device)
             masks = masks.squeeze(1).long()
             outputs = model(images)
+            loss = criterion(outputs, masks)
+            test_loss += loss.item()
             pred_masks = torch.argmax(outputs, dim=1)
             iou_metric(pred_masks, masks)
             end_time = time.time()  # End time for measuring fps
             total_time += end_time - start_time
     
+    
+    test_loss /= len(test_loader.dataset)
+    test_loss_arrray.append(test_loss)
     # Calculate frames per second (fps)
-    total_images = len(dataloader.dataset)
+    total_images = len(test_loader.dataset)
     avg_time_per_image = total_time / total_images
     fps = 1 / avg_time_per_image
     
     miou = iou_metric.compute()
+    test_iou_array.append(miou.item())
+    print("Test IOU is: ",miou.item())
+    print("FPS is: ",fps)
+    print("Test Loss is: ",test_loss)
     return miou, fps
-def mIoU(pred_mask, mask, smooth=1e-10, n_classes=2):
-    with torch.no_grad():
-        pred_mask = F.softmax(pred_mask, dim=1)
-        pred_mask = torch.argmax(pred_mask, dim=1)
-        pred_mask = pred_mask.contiguous().view(-1)
-        mask = mask.contiguous().view(-1)
 
-        iou_per_class = []
-        for clas in range(0, n_classes): #loop per pixel class
-            true_class = pred_mask == clas
-            true_label = mask == clas
+history = {'train_loss' : train_loss_arrray, 'val_loss': test_loss_arrray,
+               'train_miou' :train_iou_array, 'val_miou':test_iou_array,
+            }
 
-            if true_label.long().sum().item() == 0: #no exist label in this loop
-                iou_per_class.append(np.nan)
-            else:
-                intersect = torch.logical_and(true_class, true_label).sum().float().item()
-                union = torch.logical_or(true_class, true_label).sum().float().item()
+# def mIoU(pred_mask, mask, smooth=1e-10, n_classes=2):
+#     with torch.no_grad():
+#         pred_mask = F.softmax(pred_mask, dim=1)
+#         pred_mask = torch.argmax(pred_mask, dim=1)
+#         pred_mask = pred_mask.contiguous().view(-1)
+#         mask = mask.contiguous().view(-1)
 
-                iou = (intersect + smooth) / (union +smooth)
-                iou_per_class.append(iou)
-        return np.nanmean(iou_per_class)
+#         iou_per_class = []
+#         for clas in range(0, n_classes): #loop per pixel class
+#             true_class = pred_mask == clas
+#             true_label = mask == clas
+
+#             if true_label.long().sum().item() == 0: #no exist label in this loop
+#                 iou_per_class.append(np.nan)
+#             else:
+#                 intersect = torch.logical_and(true_class, true_label).sum().float().item()
+#                 union = torch.logical_or(true_class, true_label).sum().float().item()
+
+#                 iou = (intersect + smooth) / (union +smooth)
+#                 iou_per_class.append(iou)
+#         return np.nanmean(iou_per_class)
+    
 def test():
     start_time = time.time()
     model = torch.load('model/model_final2.pth',map_location=torch.device('cpu'))
@@ -225,16 +291,40 @@ def test():
         ax1.imshow(masked)
         plt.show()  
 
+def plot_loss(history):
+    plt.plot(history['val_loss'], label='val', marker='o')
+    plt.plot( history['train_loss'], label='train', marker='o')
+    plt.title('Loss per epoch'); plt.ylabel('loss');
+    plt.xlabel('epoch')
+    plt.legend(), plt.grid()
+    plt.show()
+
+def plot_score(history):
+    plt.plot(history['train_miou'], label='train_mIoU', marker='*')
+    plt.plot(history['val_miou'], label='val_mIoU',  marker='*')
+    plt.title('Score per epoch'); plt.ylabel('mean IoU')
+    plt.xlabel('epoch')
+    plt.legend(), plt.grid()
+    plt.show()
+
 def train():
-    epochs = 1
-    for t in range(epochs):
-        print(f"Epoch {t+1}\n-------------------------------")
-        train_model(train_loader, model, criterion, optimizer,sched)
-        #test_accuracy_score=test_accuracy(test_loader,model,criterion)
-        iou2,fps= test_accuracy_2(test_loader,model)
-        #print("test accuracy",test_accuracy_score)
-        print("test accuracy2",iou2)
-        print("fps is",fps)
+    for epoch in range(epochs):
+        print(f"Epoch {epoch+1}\n-------------------------------")
+        train_loss, train_iou, val_loss, val_iou = train_model(train_loader, val_loader, model, criterion, optimizer, sched)
+        print(f"Epoch {epoch+1}/{epochs}:")
+        print(f"Train Loss: {train_loss:.4f}, Train IoU: {train_iou:.4f}")
+        print(f"Val Loss: {val_loss:.4f}, Val IoU: {val_iou:.4f}")
+
+        # #train_model(train_loader, model, criterion, optimizer,sched)
+        # #test_accuracy_score=test_accuracy(test_loader,model,criterion)
+        # iou2,fps= test_accuracy_2(test_loader,model)
+        # #print("test accuracy",test_accuracy_score)
+        # print("test accuracy2",iou2)
+        # print("fps is",fps)
+        # print("train loss aray is",train_loss_arrray)
+        # print("test loss aray is",test_loss_arrray)
+        # print("test iou aray is",test_iou_array)
+        # print("train iou aray is",train_iou_array)
 
    
     # Create folder if not exist    
@@ -242,14 +332,17 @@ def train():
 
     model_path = "model/model_final2.pth"
     # Save model
+    plot_loss(history)
+    plot_score(history)
     torch.save(model, model_path)
+
 
 if __name__ == "__main__":
     mode = sys.argv[1]
     if mode == "train":
         train()
     elif mode == "test":
-       test()
+       test2()
     else:
         print("Please use train or test")
         sys.exit(1)
