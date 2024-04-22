@@ -69,8 +69,8 @@ print("len of val dataset",len(val_loader.dataset))
 #     classes=2,  # Number of classes (including background)
 # )
 # model.segmentation_head[-1] = nn.Conv2d(model.segmentation_head[-1].in_channels, 2, kernel_size=1)
-model= build_unet()
-# model = smp.Unet('mobilenet_v2', encoder_weights='imagenet', classes=1, activation=None, encoder_depth=5, decoder_channels=[256, 128, 64, 32, 16])
+#model= build_unet()
+model = smp.Unet('mobilenet_v2', encoder_weights='imagenet', classes=1, activation=None, encoder_depth=5, decoder_channels=[256, 128, 64, 32, 16])
 
 loss_function = nn.BCEWithLogitsLoss()
 
