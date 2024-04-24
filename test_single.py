@@ -27,8 +27,8 @@ from torchmetrics import JaccardIndex
 from data import CustomDataset
 from preprocess import u_transform, t_train, t_test, t_val
 from metrics import Iou_score
-from unet import test_loader
-from unet import loss_function
+from train import test_loader
+from train import loss_function
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 test_iou_array = [];
@@ -42,7 +42,7 @@ transform = transforms.Compose([transforms.ToTensor(),
                                 transforms.Normalize(mean, std)])
 def test():
     start_time = time.time()
-    model = torch.load('model/model_unet_bce.pth')
+    model = torch.load('model/model_PSPNET.pth')
     model.eval()
     image, mask = Image.open('oo.jpg') , Image.open('dataset/Images/image_0.jpg') 
     image=transform(image)

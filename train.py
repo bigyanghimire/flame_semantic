@@ -17,7 +17,7 @@ from unet import build_unet
 torch.set_printoptions(profile="full",sci_mode=False)
 
 lrs = []
-epochs=1
+epochs=15
 
 test_iou = [];
 
@@ -58,8 +58,6 @@ train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, dr
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, drop_last=True)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False,drop_last=True)
 
-print("len of dataset",len(train_loader.dataset))
-print("len of val dataset",len(val_loader.dataset))
 
 
 # model  = smp.DeepLabV3Plus(
@@ -71,6 +69,7 @@ print("len of val dataset",len(val_loader.dataset))
 # model.segmentation_head[-1] = nn.Conv2d(model.segmentation_head[-1].in_channels, 2, kernel_size=1)
 #model= build_unet()
 model = smp.Unet('mobilenet_v2', encoder_weights='imagenet', classes=1, activation=None, encoder_depth=5, decoder_channels=[256, 128, 64, 32, 16])
+
 
 loss_function = nn.BCEWithLogitsLoss()
 
@@ -102,7 +101,6 @@ def train_model(train_dataloader, val_dataloader, model, loss_fn, optimizer,sche
         #print("images output",output)
         threshold = 0.5
         #binary_predictions = (output > threshold).float()
-        #print("images binary output",binary_predictions)
         loss = loss_function(output, masks)
         #print("loss is",loss)
         loss.backward()
@@ -180,7 +178,7 @@ def train():
     # Create folder if not exist    
     os.makedirs("model", exist_ok=True)
 
-    model_path = "model/model_unet_bce.pth"
+    model_path = "model/unetc_model.pth"
     # Save model
     plot_loss(history)
     plot_score(history)

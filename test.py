@@ -27,19 +27,17 @@ from torchmetrics import JaccardIndex
 from data import CustomDataset
 from preprocess import u_transform, t_train, t_test, t_val
 from metrics import Iou_score
-from unet import test_loader
-from unet import loss_function
+from train import test_loader
+from train import loss_function
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 test_iou_array = [];
-test_loss_arrray = [];
 
 def test2():
-    model = torch.load('model/model_unet_bce.pth',map_location=torch.device(device))
+    model = torch.load('model/unetc_model.pth',map_location=torch.device(device))
     model.eval()
     iou_metric = JaccardIndex(task='binary').to(device)
     total_time = 0
-    test_loss=0
     running_val_fps=0
     with torch.no_grad():
         for images, masks in tqdm(test_loader):
@@ -51,7 +49,6 @@ def test2():
             outputs = model(images)
             outputs=torch.sigmoid(outputs)
             loss = loss_function(outputs, masks)
-            test_loss += loss.item()
             pred_masks = torch.argmax(outputs, dim=1)
             #print("masks",masks)
             iou_metric(outputs, masks)
@@ -62,19 +59,15 @@ def test2():
             running_val_fps += images.shape[0] / time_taken
     
     
-    test_loss /= len(test_loader.dataset)
-    test_loss_arrray.append(test_loss)
     # Calculate frames per second (fps)
     total_images = len(test_loader.dataset)
     avg_time_per_image = total_time / total_images
     fps = 1 / avg_time_per_image
     fps2 = running_val_fps / len(test_loader)
     miou = iou_metric.compute()
-    test_iou_array.append(miou.item())
-    print("Test IOU is: ",miou.item())
+    print("Test IOU is: ",miou.item()*100)
     print("FPS is: ",fps)
     print("FPS2 is: ",fps2)
-    print("Test Loss is: ",test_loss)
     return miou, fps
 
 if __name__ == "__main__":
